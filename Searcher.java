@@ -8,24 +8,13 @@ public class Searcher {
 
 	private String filePath;
 	private static final Charset charset = Charset.forName("utf-8");
+	private boolean sortFinished=false;
 
-	private void prompt() {
-		System.out.print("search> ");
-	}
-
-	public Searcher(String filePath) {
-		this.filePath = filePath;
-	}
-
-	public String search(String query) {
-		File f = new File(filePath.split("\\.")[0] + "_sorted.tsv"); 
-		System.out.println("Looking for a file named: " + filePath.split("\\.")[0] + "_sorted.tsv");
-
-		if(!f.exists()) {
-			System.out.println("Sorting file...");
+	class SortThread implements Runnable {
+		public void run() {
 			// create the sorted one
 			externalSort(filePath.split("\\.")[0],"name");
-
+			sortFinished=true;
 			// get rid of the chunk files
 			final File folder = new File(".");
 			final File[] files = folder.listFiles( new FilenameFilter() {
@@ -41,9 +30,37 @@ public class Searcher {
 			    }
 			}
 
-			System.out.println(filePath + " sorted into " + filePath.split("\\.")[0] + "_sorted.tsv");
+			System.out.println("\n" + filePath + " sorted into " + filePath.split("\\.")[0] + "_sorted.tsv");
 			System.out.println("Searching will now use that file for faster lookup");
-		} else {
+			prompt();
+		}
+	}
+
+	private void prompt() {
+		System.out.print("search> ");
+	}
+
+	public Searcher(String filePath) {
+		this.filePath = filePath;
+	}
+
+	public String search(String query) {
+		File f = new File(filePath.split("\\.")[0] + "_sorted.tsv"); 
+		System.out.print("Looking for a file named: " + filePath.split("\\.")[0] + "_sorted.tsv... ");
+
+		if(!f.exists()) {
+			System.out.println("Not found.\nSorting file in background... Please do not exit program.");
+			new Thread((new SortThread())).start();
+		}
+
+		// detect if the sorted file was finished sorting, 10% room for error
+		File g = new File(filePath);
+		if (f.exists() && g.exists() && Math.abs((float) g.length()/f.length()) > 0.9) {
+			sortFinished = true;
+			System.out.println("Found");
+		}
+
+		if (sortFinished) {
 			try {
 				// Binary Search the sorted file
 				// m*logn look up (m = line size)
@@ -55,59 +72,57 @@ public class Searcher {
 				while (low <= high) {
 					long mid = (low+high)/2;
 					raf.seek(mid);
-					//System.out.println("Rest of the line is: " + raf.readLine()); // move to the next line
+
+					// move to the next line
 					line = raf.readLine();
 					if (line != null) {
 						line = raf.readLine();
 						line = new String(line.getBytes("ISO-8859-1"),charset);
-						//line = new String(line, "UTF-8");	
 					}
 		
 					if (line != null && query.equals(line.split("\t")[0])) { // found it
 						endTime = System.nanoTime();
-						System.out.println("Found id in: " + (endTime-startTime)/1000000 + " milliseconds");
-						return line.split("\t")[1];
+						System.out.println("Binary search found id in: " + (endTime-startTime)/1000000 + " milliseconds");
+						raf.close();
+						return "ID for " + query + ": " + line.split("\t")[1];
 					}
 					else if (query.compareTo(line.split("\t")[0]) < 0) high = mid-1; 
 					else low = mid + 1;	
 				}
 			} catch (IOException e) {
-				System.out.println("Mudda fuggin IOException: " + e.getMessage());
+				System.out.println(e.getMessage());
 			}
 			
-			return "Couldn't find your query";
+		} else {
 
-			// BufferedReader bf;
-			// Scanner sc;
-			// long startTime;
-			// long endTime;
-			// try {
-			// 	String line;
+			BufferedReader bf;
+			Scanner sc;
+			long startTime, endTime;
+			try {
+				String line;
 
-			// 	// ###############################
-			// 	// ####    BUFFERED READER    ####
-			// 	// ###############################
+				// ###############################
+				// ####    BUFFERED READER    ####
+				// ###############################
 
-			// 	bf = new BufferedReader(new InputStreamReader(new FileInputStream(filePath)), 64000);
-			// 	startTime = System.nanoTime();
-			// 	while ((line = bf.readLine()) != null) {
-			// 		if (line.split("\t")[0].equals(query)){
-			// 			endTime = System.nanoTime();
-			// 			System.out.println("BufferedReaderStream found id in: " + (endTime - startTime)/1000000 + " milliseconds"); // converted to milliseconds
-			// 			return line.split("\t")[1];	
-			// 		} 
-			// 		// System.out.println(line.split("\t")[0]);
-			// 	}
-			// 	endTime = System.nanoTime();
-			// 	System.out.println("BufferedReaderStream took: " + (endTime - startTime)/1000000 + " milliseconds"); // converted to milliseconds
-			// 	bf.close();
+				bf = new BufferedReader(new InputStreamReader(new FileInputStream(filePath)), 64000);
+				startTime = System.nanoTime();
+				while ((line = bf.readLine()) != null) {
+					if (line.split("\t")[0].equals(query)){
+						endTime = System.nanoTime();
+						System.out.println("Linear search found id in: " + (endTime - startTime)/1000000 + " milliseconds"); // converted to milliseconds
+						return "ID for " + query + ": " + line.split("\t")[1];	
+					} 
+					// System.out.println(line.split("\t")[0]);
+				}
+				bf.close();
 
-			// } catch (IOException e) {
-			// 	System.out.println(e.getMessage());
-			// }
+			} catch (IOException e) {
+				System.out.println(e.getMessage());
+			}
 		}
 
-		return "Couldn't find your query";
+		return "Couldn't find your query, try again. Note: search is case-sensitive";
 	}
 
 	public static void main(String[] args) {
