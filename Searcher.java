@@ -8,10 +8,11 @@ public class Searcher {
 
 	private String filePath;
 	private static final Charset charset = Charset.forName("utf-8");
-	private boolean sortFinished=false;
+	private boolean sortFinished=false, sortStarted=false;
 
 	class SortThread implements Runnable {
 		public void run() {
+			sortStarted=true;
 			// create the sorted one
 			externalSort(filePath.split("\\.")[0],"name");
 			sortFinished=true;
@@ -31,7 +32,7 @@ public class Searcher {
 			}
 
 			System.out.println("\n" + filePath + " sorted into " + filePath.split("\\.")[0] + "_sorted.tsv");
-			System.out.println("Searching will now use that file for faster lookup");
+			System.out.println("Searching will now use that file for faster lookup\n");
 			prompt();
 		}
 	}
@@ -48,14 +49,13 @@ public class Searcher {
 		File f = new File(filePath.split("\\.")[0] + "_sorted.tsv"); 
 		System.out.print("Looking for a file named: " + filePath.split("\\.")[0] + "_sorted.tsv... ");
 
+		// detect if the sorted file was finished sorting
 		if(!f.exists()) {
-			System.out.println("Not found.\nSorting file in background... Please do not exit program.");
+			System.out.println("Not found\nSorting file in background... Please do not exit program.");
 			new Thread((new SortThread())).start();
-		}
-
-		// detect if the sorted file was finished sorting, 10% room for error
-		File g = new File(filePath);
-		if (f.exists() && g.exists() && Math.abs((float) g.length()/f.length()) > 0.9) {
+		} else if (sortStarted) { // Means weve sorted it in another run, open for error if sort was terminated
+			System.out.println("Found, but still sorting");
+		} else {
 			sortFinished = true;
 			System.out.println("Found");
 		}
@@ -95,17 +95,14 @@ public class Searcher {
 			
 		} else {
 
+			// Linear Search the unsorted file
+
 			BufferedReader bf;
-			Scanner sc;
 			long startTime, endTime;
 			try {
 				String line;
 
-				// ###############################
-				// ####    BUFFERED READER    ####
-				// ###############################
-
-				bf = new BufferedReader(new InputStreamReader(new FileInputStream(filePath)), 64000);
+				bf = new BufferedReader(new InputStreamReader(new FileInputStream(filePath)), 8192);
 				startTime = System.nanoTime();
 				while ((line = bf.readLine()) != null) {
 					if (line.split("\t")[0].equals(query)){
@@ -132,7 +129,7 @@ public class Searcher {
 		Scanner scanner = new Scanner(System.in);
 		while(scanner.hasNext()) {
 			String results = searcher.search(scanner.nextLine());
-			System.out.println(results);
+			System.out.println(results+"\n");
 			searcher.prompt();
 		}
 	}
@@ -144,8 +141,9 @@ public class Searcher {
 
 
 
-
-
+	// ########################################
+	// ####     ALL SORTING CODE BELOW     ####
+	// ########################################
 
 
 	private static void externalSort(String relation, String attribute)
